@@ -1,0 +1,61 @@
+name: Build tipa
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 Theos
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          echo "THEOS=$THEOS"
+          ls "$THEOS" | head
+
+      - name: 确保 ldid 可用
+        run: |
+          set -e
+          if command -v ldid >/dev/null 2>&1; then
+            echo "ldid already available: $(command -v ldid)"
+          else
+            mkdir -p "$HOME/bin"
+            for name in "ldid_macosx_$(uname -m)" ldid_macosx_arm64 ldid_macosx_x86_64; do
+              if curl -fsSL -o "$HOME/bin/ldid" "https://github.com/ProcursusTeam/ldid/releases/latest/download/$name"; then
+                chmod +x "$HOME/bin/ldid"
+                echo "downloaded $name"
+                break
+              fi
+            done
+            echo "$HOME/bin" >> "$GITHUB_PATH"
+          fi
+          export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          ldid -v || true
+
+      - name: 编译并打包
+        run: |
+          export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          make clean || true
+          make package FINALPACKAGE=1 PACKAGE_FORMAT=ipa
+          echo "--- packages ---"
+          ls -lh packages/
+
+      - name: 上传 tipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: RebootTools-tipa
+          path: packages/*.tipa
+          if-no-files-found: error

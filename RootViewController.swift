@@ -196,9 +196,21 @@ class RootViewController: UIViewController {
         }
     }
 
+    /// 倒计时器已启用并且设置了大于 0 的秒数：此时执行属于“预约执行/自动化执行”，
+    /// 不需要用户再确认一次，直接进入倒计时即可。
+    private var isScheduledExecution: Bool {
+        return settingsUtils.getEnableAction() && settingsUtils.getTime() > 0
+    }
+
+    /// 执行动作前是否需要弹出「确定要执行吗」的确认框。
+    /// 只有在用户没有关闭「执行前显示提示」、且当前不是预约执行时才需要确认。
+    private var needsConfirmAlert: Bool {
+        return settingsUtils.getShowAlertBeforeAction() && !isScheduledExecution
+    }
+
     @objc func onClickRebootButton() {
         
-        if settingsUtils.getShowAlertBeforeAction() {
+        if needsConfirmAlert {
             // 创建 UIAlertController
             let alertController = UIAlertController(title: nil, message: String.localizedStringWithFormat(NSLocalizedString("Action_Alert", comment: ""), NSLocalizedString("Reboot_Device_text", comment: "")), preferredStyle: .alert)
             
@@ -226,7 +238,7 @@ class RootViewController: UIViewController {
     
     @objc func onClickRebootUserSpaceButton() {
         
-        if settingsUtils.getShowAlertBeforeAction() {
+        if needsConfirmAlert {
             // 创建 UIAlertController
             let alertController = UIAlertController(title: nil, message: String.localizedStringWithFormat(NSLocalizedString("Action_Alert", comment: ""), NSLocalizedString("Reboot_UserSpace_Device_text", comment: "")), preferredStyle: .alert)
             
@@ -284,7 +296,7 @@ class RootViewController: UIViewController {
     
     @objc func onClickRespringButton() {
         
-        if settingsUtils.getShowAlertBeforeAction() {
+        if needsConfirmAlert {
             // 创建 UIAlertController
             let alertController = UIAlertController(title: nil, message: String.localizedStringWithFormat(NSLocalizedString("Action_Alert", comment: ""), NSLocalizedString("Respring_text", comment: "")), preferredStyle: .alert)
             

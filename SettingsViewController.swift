@@ -2,7 +2,7 @@ import UIKit
 
 class SettingsViewController: UIViewController, UITableViewDelegate, UITableViewDataSource {
 
-	let versionCode = "1.2.1"
+	let versionCode = "1.2.2"
     var onSettingsChanged: (() -> Void)? // 一个回调
     
     var tableView = UITableView(frame: .zero, style: .insetGrouped)
@@ -108,6 +108,13 @@ class SettingsViewController: UIViewController, UITableViewDelegate, UITableView
                     if indexPath.row == 0 {
                         switchView.tag = SwitchTag.ShowAlertBeforeAction.rawValue
                         switchView.isOn = settingsUtils.getShowAlertBeforeAction()
+                        // 倒计时器启用（且时间大于 0）时，执行前不会再弹确认框，
+                        // 这里把开关置灰，避免出现「明明开了提示却不弹」的困惑
+                        if settingsUtils.getEnableAction() && settingsUtils.getTime() > 0 {
+                            cell.textLabel?.textColor = .lightGray
+                            switchView.isEnabled = false
+                            cell.isUserInteractionEnabled = false
+                        }
                     } else if indexPath.row == 1 {
                         switchView.tag = SwitchTag.ShowRootText.rawValue
                         if !hasRootPermission { // 没有Root权限的用户，不允许关闭无权限的提示
@@ -282,6 +289,8 @@ class SettingsViewController: UIViewController, UITableViewDelegate, UITableView
             // 刷新子项目
             tableView.reloadRows(at: [IndexPath(row: 2, section: 2)], with: .none)
             tableView.reloadRows(at: [IndexPath(row: 3, section: 2)], with: .none)
+            // 倒计时器开关会影响到「执行前显示提示」是否可用
+            tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
         case SwitchTag.OpenApplicationAction:
             settingsUtils.setOpenApplicationAction(value: sender.isOn)
             settingsUtils.configQuickActions(application: UIApplication.shared)
@@ -297,6 +306,8 @@ class SettingsViewController: UIViewController, UITableViewDelegate, UITableView
             settingsUtils.setTime(value: Int(sender.value))
             checkAutomaticaEnableAlert() //检查是否是全自动化
             cell.detailTextLabel?.text = String.localizedStringWithFormat(NSLocalizedString("Seconds_text", comment: ""), Int(sender.value))
+            // 时间是否大于 0 会影响到「执行前显示提示」是否可用
+            tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
         }
     }
 
