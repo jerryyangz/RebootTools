@@ -8,7 +8,7 @@ on:
     branches: [ main, master ]
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   THEOS: ${{ github.workspace }}/theos
@@ -59,3 +59,17 @@ jobs:
           name: RebootTools-tipa
           path: packages/*.tipa
           if-no-files-found: error
+
+      # 把 .tipa 挂到 Release 上，方便拿到无需登录的公开直链
+      - name: 发布 Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.2.2
+          name: RebootTools 1.2.2
+          body: |
+            - 倒计时器已启用（秒数 > 0）时，执行重启/注销不再弹出「确定要执行吗」确认框，直接进入倒计时并自动执行
+            - 倒计时器启用时，「设置 → 执行前显示提示」自动置灰，避免误解
+            - 新增 GitHub Actions 自动编译出包
+          files: packages/*.tipa
+          fail_on_unmatched_files: true
