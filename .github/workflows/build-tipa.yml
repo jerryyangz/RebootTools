@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - 'RespringNow/**'
+      - '.github/workflows/build-respringnow.yml'
   pull_request:
     branches: [ main, master ]
 

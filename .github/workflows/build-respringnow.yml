@@ -1,0 +1,78 @@
+name: Build RespringNow
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'RespringNow/**'
+      - '.github/workflows/build-respringnow.yml'
+
+permissions:
+  contents: write
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 Theos
+        run: |
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          echo "THEOS=$THEOS"
+          ls "$THEOS" | head
+
+      - name: 确保 ldid 可用
+        run: |
+          set -e
+          if command -v ldid >/dev/null 2>&1; then
+            echo "ldid already available: $(command -v ldid)"
+          else
+            mkdir -p "$HOME/bin"
+            for name in "ldid_macosx_$(uname -m)" ldid_macosx_arm64 ldid_macosx_x86_64; do
+              if curl -fsSL -o "$HOME/bin/ldid" "https://github.com/ProcursusTeam/ldid/releases/latest/download/$name"; then
+                chmod +x "$HOME/bin/ldid"
+                echo "downloaded $name"
+                break
+              fi
+            done
+            echo "$HOME/bin" >> "$GITHUB_PATH"
+          fi
+          export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          ldid -v || true
+
+      - name: 编译并打包
+        run: |
+          export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          cd RespringNow
+          make clean || true
+          make package FINALPACKAGE=1 PACKAGE_FORMAT=ipa
+          echo "--- packages ---"
+          ls -lh packages/
+
+      - name: 上传 tipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: RespringNow-tipa
+          path: RespringNow/packages/*.tipa
+          if-no-files-found: error
+
+      - name: 发布 Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: respringnow-v1.0.0
+          name: 一键注销 1.0.0
+          body: |
+            点开图标立即注销主屏幕，没有界面、没有确认框。
+
+            - 用 TrollStore 安装（需要 platform-application 权限才能结束 SpringBoard）
+            - 支持 iOS / iPadOS 14.0 及以上，arm64 / arm64e
+            - 若安装方式不给权限，App 会停在黑屏并提示失败原因，不会静默无反应
+          files: RespringNow/packages/*.tipa
+          fail_on_unmatched_files: true
