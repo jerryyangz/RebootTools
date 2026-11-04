@@ -1,0 +1,9 @@
+Package: com.jerryyangz.poweroffnow
+Name: 一键关机
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: 点开图标立即关机，无界面、无确认框。
+Maintainer: jerryyangz
+Author: jerryyangz
+Section: Utilities
+Depends: firmware (>= 14.0) | ${LIBSWIFT}
