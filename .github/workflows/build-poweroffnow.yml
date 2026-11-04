@@ -21,9 +21,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: 缓存 Theos
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/theos
+          key: theos-${{ runner.os }}-v1
+
       - name: 安装 Theos
         run: |
           set -e
+          if [ -d "$THEOS/makefiles" ]; then
+            echo "Theos 已从缓存恢复"
+            ls "$THEOS" | head
+            exit 0
+          fi
           mkdir -p "$THEOS"
           ok=0
           for i in 1 2 3; do
@@ -37,12 +48,10 @@ jobs:
             git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
           fi
           test -d "$THEOS/makefiles"
-          echo "THEOS=$THEOS"
           ls "$THEOS" | head
 
       - name: 确保 ldid 可用
         run: |
-          set -e
           if command -v ldid >/dev/null 2>&1; then
             echo "ldid already available: $(command -v ldid)"
           else
@@ -57,29 +66,74 @@ jobs:
             echo "$HOME/bin" >> "$GITHUB_PATH"
           fi
           export PATH="$THEOS/bin:$HOME/bin:$PATH"
-          ldid -v || true
+          ldid -v || echo "ldid 不可用（签名将跳过，TrollStore 安装时会重签）"
 
       - name: 编译关机 helper
         run: |
+          LOG="$GITHUB_WORKSPACE/ci-helper.log"
+          exec > >(tee "$LOG") 2>&1
           set -x
           export PATH="$THEOS/bin:$HOME/bin:$PATH"
-          command -v ldid || echo "!! ldid 不在 PATH（签名将跳过，TrollStore 安装时会重签）"
-          cd PowerOffNow/Helper
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "SDK=$SDK"
+
+          echo "=== 环境 ==="
+          uname -a
+          xcodebuild -version || true
+          clang --version | head -3 || true
+          command -v ldid || echo "!! ldid 不在 PATH"
+
+          echo "=== 定位 iOS SDK ==="
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)"
+          echo "xcrun SDK=[$SDK]"
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "xcrun 拿不到 iOS SDK，改用 Theos 自带 SDK"
+            SDK="$(ls -d "$THEOS"/sdks/iPhoneOS*.sdk 2>/dev/null | tail -1)"
+            echo "theos SDK=[$SDK]"
+          fi
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "!! 找不到任何 iOS SDK，编译中止"
+            exit 1
+          fi
+          echo "SDK 已确认: $SDK"
           ls "$SDK/usr/include/sys/reboot.h"
-          xcrun --sdk iphoneos clang \
-            -arch arm64 -arch arm64e \
-            -miphoneos-version-min=14.0 -O2 -isysroot "$SDK" \
-            main.c -o ../Resources/PowerOffHelper
+
+          echo "=== 编译（分别编译再 lipo 合并，避免依赖 xcrun 的 SDK 选择）==="
+          cd PowerOffNow/Helper
+          set +e
+          clang -target arm64-apple-ios14.0 -isysroot "$SDK" -O2 -Wall main.c -o /tmp/po_arm64
+          echo "arm64 exit=$?"
+          clang -target arm64e-apple-ios14.0 -isysroot "$SDK" -O2 -Wall main.c -o /tmp/po_arm64e
+          echo "arm64e exit=$?"
+          lipo -create /tmp/po_arm64 /tmp/po_arm64e -output ../Resources/PowerOffHelper
+          echo "lipo exit=$?"
+          if [ ! -f ../Resources/PowerOffHelper ]; then
+            echo "!! 编译失败，结束"
+            exit 1
+          fi
+
+          echo "=== 签名 ==="
           if command -v ldid >/dev/null 2>&1; then
             ldid -S"$(pwd)/entitlements.plist" ../Resources/PowerOffHelper
+            echo "ldid exit=$?"
           else
             echo "跳过 ldid 签名"
           fi
           chmod +x ../Resources/PowerOffHelper
-          file ../Resources/PowerOffHelper || true
+          file ../Resources/PowerOffHelper
           codesign -d --entitlements - ../Resources/PowerOffHelper 2>&1 | head -12 || true
+          echo "=== 完成 ==="
+
+      - name: 失败时把日志推到 ci-logs 分支
+        if: failure()
+        run: |
+          set -x
+          cp "$GITHUB_WORKSPACE/ci-helper.log" ./ci-helper.log 2>/dev/null || echo "no log captured" > ./ci-helper.log
+          rm -f PowerOffNow/Resources/PowerOffHelper
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git checkout -B ci-logs
+          git add -f ci-helper.log
+          git commit -m "ci: helper 编译日志 $(date +%s)" || true
+          git push -f origin ci-logs
 
       - name: 编译并打包
         run: |
