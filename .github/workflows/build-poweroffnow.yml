@@ -23,7 +23,20 @@ jobs:
 
       - name: 安装 Theos
         run: |
-          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
+          set -e
+          mkdir -p "$THEOS"
+          ok=0
+          for i in 1 2 3; do
+            if bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"; then ok=1; break; fi
+            echo "install-theos 第 $i 次失败，5 秒后重试"
+            sleep 5
+          done
+          if [ "$ok" != "1" ] || [ ! -d "$THEOS/makefiles" ]; then
+            echo "官方安装脚本失败，改为直接克隆"
+            rm -rf "$THEOS"
+            git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+          fi
+          test -d "$THEOS/makefiles"
           echo "THEOS=$THEOS"
           ls "$THEOS" | head
 
