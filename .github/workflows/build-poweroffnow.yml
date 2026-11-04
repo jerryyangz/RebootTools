@@ -61,17 +61,24 @@ jobs:
 
       - name: 编译关机 helper
         run: |
-          set -e
+          set -x
           export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          command -v ldid || echo "!! ldid 不在 PATH（签名将跳过，TrollStore 安装时会重签）"
           cd PowerOffNow/Helper
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "SDK=$SDK"
+          ls "$SDK/usr/include/sys/reboot.h"
           xcrun --sdk iphoneos clang \
             -arch arm64 -arch arm64e \
             -miphoneos-version-min=14.0 -O2 -isysroot "$SDK" \
             main.c -o ../Resources/PowerOffHelper
-          ldid -S"$(pwd)/entitlements.plist" ../Resources/PowerOffHelper
+          if command -v ldid >/dev/null 2>&1; then
+            ldid -S"$(pwd)/entitlements.plist" ../Resources/PowerOffHelper
+          else
+            echo "跳过 ldid 签名"
+          fi
           chmod +x ../Resources/PowerOffHelper
-          file ../Resources/PowerOffHelper
+          file ../Resources/PowerOffHelper || true
           codesign -d --entitlements - ../Resources/PowerOffHelper 2>&1 | head -12 || true
 
       - name: 编译并打包
