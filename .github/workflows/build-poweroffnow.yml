@@ -68,12 +68,48 @@ jobs:
           export PATH="$THEOS/bin:$HOME/bin:$PATH"
           ldid -v || echo "ldid 不可用（签名将跳过，TrollStore 安装时会重签）"
 
-      - name: 编译关机 helper
+      - name: 生成并编译关机 helper
         run: |
-          LOG="$GITHUB_WORKSPACE/ci-helper.log"
-          exec > >(tee "$LOG") 2>&1
-          set -x
+          set -ex
           export PATH="$THEOS/bin:$HOME/bin:$PATH"
+
+          # iOS SDK 不含 <sys/reboot.h>；直接内联生成不依赖私有头的源码
+          cat > PowerOffNow/Helper/main.c << 'CSRC'
+          #include <unistd.h>
+          #include <stdio.h>
+          #include <errno.h>
+          #include <string.h>
+          #include <dlfcn.h>
+
+          /* iOS SDK has no <sys/reboot.h>. Use dlsym() so no private header/symbol is needed. */
+          #define RB_HALT 0x08
+          typedef int (*reboot_fn)(int);
+
+          static void try_exec(const char *path, char *const argv[])
+          {
+              if (access(path, X_OK) != 0) return;
+              execv(path, argv);
+          }
+
+          int main(int argc, char *argv[])
+          {
+              sync();
+              char *shutdownArgs[] = { "shutdown", "-h", "now", NULL };
+              char *haltArgs[] = { "halt", NULL };
+              try_exec("/var/jb/usr/bin/shutdown", shutdownArgs);
+              try_exec("/var/jb/usr/bin/halt", haltArgs);
+              try_exec("/usr/bin/shutdown", shutdownArgs);
+              try_exec("/usr/bin/halt", haltArgs);
+              reboot_fn reboot_sys = (reboot_fn)dlsym(RTLD_DEFAULT, "reboot");
+              if (reboot_sys != NULL) {
+                  reboot_sys(RB_HALT);
+                  fprintf(stderr, "poweroff failed: reboot(RB_HALT): %s\n", strerror(errno));
+              } else {
+                  fprintf(stderr, "poweroff failed: reboot() unavailable\n");
+              }
+              return 1;
+          }
+          CSRC
 
           echo "=== 环境 ==="
           uname -a
@@ -85,7 +121,6 @@ jobs:
           SDK="$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || true)"
           echo "xcrun SDK=[$SDK]"
           if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
-            echo "xcrun 拿不到 iOS SDK，改用 Theos 自带 SDK"
             SDK="$(ls -d "$THEOS"/sdks/iPhoneOS*.sdk 2>/dev/null | tail -1)"
             echo "theos SDK=[$SDK]"
           fi
@@ -94,9 +129,8 @@ jobs:
             exit 1
           fi
           echo "SDK 已确认: $SDK"
-          ls "$SDK/usr/include/sys/reboot.h"
 
-          echo "=== 编译（分别编译再 lipo 合并，避免依赖 xcrun 的 SDK 选择）==="
+          echo "=== 编译 ==="
           cd PowerOffNow/Helper
           set +e
           clang -target arm64-apple-ios14.0 -isysroot "$SDK" -O2 -Wall main.c -o /tmp/po_arm64
@@ -105,35 +139,16 @@ jobs:
           echo "arm64e exit=$?"
           lipo -create /tmp/po_arm64 /tmp/po_arm64e -output ../Resources/PowerOffHelper
           echo "lipo exit=$?"
-          if [ ! -f ../Resources/PowerOffHelper ]; then
-            echo "!! 编译失败，结束"
-            exit 1
-          fi
+          set -e
+          test -f ../Resources/PowerOffHelper
 
           echo "=== 签名 ==="
           if command -v ldid >/dev/null 2>&1; then
             ldid -S"$(pwd)/entitlements.plist" ../Resources/PowerOffHelper
-            echo "ldid exit=$?"
-          else
-            echo "跳过 ldid 签名"
           fi
           chmod +x ../Resources/PowerOffHelper
           file ../Resources/PowerOffHelper
-          codesign -d --entitlements - ../Resources/PowerOffHelper 2>&1 | head -12 || true
           echo "=== 完成 ==="
-
-      - name: 失败时把日志推到 ci-logs 分支
-        if: failure()
-        run: |
-          set -x
-          cp "$GITHUB_WORKSPACE/ci-helper.log" ./ci-helper.log 2>/dev/null || echo "no log captured" > ./ci-helper.log
-          rm -f PowerOffNow/Resources/PowerOffHelper
-          git config user.name "ci-bot"
-          git config user.email "ci-bot@users.noreply.github.com"
-          git checkout -B ci-logs
-          git add -f ci-helper.log
-          git commit -m "ci: helper 编译日志 $(date +%s)" || true
-          git push -f origin ci-logs
 
       - name: 编译并打包
         run: |
