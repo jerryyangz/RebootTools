@@ -71,11 +71,25 @@ jobs:
           export PATH="$THEOS/bin:$HOME/bin:$PATH"
           cd LockNow
           make clean || true
-          make package FINALPACKAGE=1 PACKAGE_FORMAT=ipa
+          set -o pipefail
+          make package FINALPACKAGE=1 PACKAGE_FORMAT=ipa 2>&1 | tee /tmp/locknow-build.log
           echo "--- packages ---"
           ls -lh packages/
           echo "--- bundle 内容 ---"
           find .theos/_/Applications/LockNow.app -maxdepth 1 -type f | head -20
+
+      - name: 打印编译错误
+        if: failure()
+        run: |
+          if [ -f /tmp/locknow-build.log ]; then
+            echo "::group::编译日志中的错误行"
+            grep -nE "error:|Error [0-9]+|\*\*\*|undefined|No such file|ld: |clang: |swiftc: |fatal error" /tmp/locknow-build.log | head -40 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            echo "::endgroup::"
+            echo "::group::编译日志末尾 60 行"
+            tail -60 /tmp/locknow-build.log
+            echo "::endgroup::"
+          fi
 
       - name: 上传 tipa
         uses: actions/upload-artifact@v4

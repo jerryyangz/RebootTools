@@ -51,27 +51,35 @@ static const char * const kFallbackNotifications[] = {
     NULL
 };
 
-@interface DeviceController () {
-    LNNotifyPostFn _post;
-    LNNotifyRegisterCheckFn _registerCheck;
-    LNNotifyGetStateFn _getState;
-    LNNotifyCancelFn _cancel;
-}
+// 函数指针用文件级 static 保存，避免作为 ARC ivar 触发编译器差异；
+// 这些值对所有实例都相同，进程内解析一次即可。
+static LNNotifyPostFn sNotifyPost = NULL;
+static LNNotifyRegisterCheckFn sNotifyRegisterCheck = NULL;
+static LNNotifyGetStateFn sNotifyGetState = NULL;
+static LNNotifyCancelFn sNotifyCancel = NULL;
+
+@interface DeviceController ()
 @property (nonatomic, strong) NSMutableArray<NSString *> *lines;
 @end
 
 @implementation DeviceController
+
++ (void)initialize
+{
+    if (self == [DeviceController class]) {
+        // 全部来自 libSystem，签名固定；取不到就整条路径跳过，绝不猜测调用
+        sNotifyPost          = (LNNotifyPostFn)dlsym(RTLD_DEFAULT, "notify_post");
+        sNotifyRegisterCheck = (LNNotifyRegisterCheckFn)dlsym(RTLD_DEFAULT, "notify_register_check");
+        sNotifyGetState      = (LNNotifyGetStateFn)dlsym(RTLD_DEFAULT, "notify_get_state");
+        sNotifyCancel        = (LNNotifyCancelFn)dlsym(RTLD_DEFAULT, "notify_cancel");
+    }
+}
 
 - (instancetype)init
 {
     self = [super init];
     if (self) {
         _lines = [NSMutableArray array];
-        // 全部来自 libSystem，签名固定；取不到就整条路径跳过，绝不猜测调用
-        _post          = (LNNotifyPostFn)dlsym(RTLD_DEFAULT, "notify_post");
-        _registerCheck = (LNNotifyRegisterCheckFn)dlsym(RTLD_DEFAULT, "notify_register_check");
-        _getState      = (LNNotifyGetStateFn)dlsym(RTLD_DEFAULT, "notify_get_state");
-        _cancel        = (LNNotifyCancelFn)dlsym(RTLD_DEFAULT, "notify_cancel");
     }
     return self;
 }
@@ -89,13 +97,13 @@ static const char * const kFallbackNotifications[] = {
 /// 读取系统锁屏状态：0=未锁定，1=已锁定，读取失败返回 -1
 - (int)readLockState
 {
-    if (!_registerCheck || !_getState) return -1;
+    if (!sNotifyRegisterCheck || !sNotifyGetState) return -1;
     int token = 0;
-    uint32_t rc = _registerCheck("com.apple.springboard.lockstate", &token);
+    uint32_t rc = sNotifyRegisterCheck("com.apple.springboard.lockstate", &token);
     if (rc != 0) return -1;
     uint64_t state = 0;
-    uint32_t grc = _getState(token, &state);
-    if (_cancel) _cancel(token);
+    uint32_t grc = sNotifyGetState(token, &state);
+    if (sNotifyCancel) sNotifyCancel(token);
     if (grc != 0) return -1;
     return (int)state;
 }
@@ -117,7 +125,7 @@ static const char * const kFallbackNotifications[] = {
     [self line:[NSString stringWithFormat:@"iOS %ld.%ld.%ld",
                 (long)v.majorVersion, (long)v.minorVersion, (long)v.patchVersion]];
     [self line:[NSString stringWithFormat:@"notify_post %@ / notify_get_state %@",
-                _post ? @"可用" : @"不可用", _getState ? @"可用" : @"不可用"]];
+                sNotifyPost ? @"可用" : @"不可用", sNotifyGetState ? @"可用" : @"不可用"]];
     [self line:[NSString stringWithFormat:@"锁屏前状态：%@", [self currentLockState]]];
     [self line:@""];
 
@@ -125,10 +133,10 @@ static const char * const kFallbackNotifications[] = {
 
     // ---------- 阶段 1：公开 Darwin 通知（主路径） ----------
     [self line:@"== 阶段 1：Darwin 锁屏通知 =="];
-    if (!_post) {
+    if (!sNotifyPost) {
         [self line:@"notify_post 不可用，跳过此阶段。"];
     } else {
-        uint32_t rc = _post(kPrimaryNotification);
+        uint32_t rc = sNotifyPost(kPrimaryNotification);
         if (rc == 0) posted = YES;
         [self line:[NSString stringWithFormat:@"%s  →  %@", kPrimaryNotification,
                     rc == 0 ? @"已发送 (rc=0)"
@@ -161,7 +169,7 @@ static const char * const kFallbackNotifications[] = {
     // ---------- 阶段 3：逐条补充通知，逐条校验 ----------
     [self line:@""];
     [self line:@"== 阶段 3：补充候选通知（逐条校验）=="];
-    if (!_post) {
+    if (!sNotifyPost) {
         [self line:@"notify_post 不可用，跳过此阶段。"];
     } else {
         for (int i = 0; kFallbackNotifications[i]; i++) {
@@ -169,7 +177,7 @@ static const char * const kFallbackNotifications[] = {
                 [self line:@"→ 已锁定，停止发送剩余通知。"];
                 break;
             }
-            uint32_t rc = _post(kFallbackNotifications[i]);
+            uint32_t rc = sNotifyPost(kFallbackNotifications[i]);
             if (rc == 0) posted = YES;
             [self line:[NSString stringWithFormat:@"%s  →  %@",
                         kFallbackNotifications[i],
