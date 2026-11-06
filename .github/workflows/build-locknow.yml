@@ -16,7 +16,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-15-intel
+    runs-on: macos-15-intel-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
