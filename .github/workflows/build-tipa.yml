@@ -7,8 +7,10 @@ on:
     paths-ignore:
       - 'RespringNow/**'
       - 'PowerOffNow/**'
+      - 'LockNow/**'
       - '.github/workflows/build-respringnow.yml'
       - '.github/workflows/build-poweroffnow.yml'
+      - '.github/workflows/build-locknow.yml'
   pull_request:
     branches: [ main, master ]
 
