@@ -1,0 +1,9 @@
+Package: com.jerryyangz.lockdiag
+Name: 锁屏诊断
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: 纯 ObjC 对照包：不自动执行，用三个按钮分步测试锁屏通知。
+Maintainer: jerryyangz
+Author: jerryyangz
+Section: Utilities
+Depends: firmware (>= 14.0)

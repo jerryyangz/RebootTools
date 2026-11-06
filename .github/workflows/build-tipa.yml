@@ -8,9 +8,11 @@ on:
       - 'RespringNow/**'
       - 'PowerOffNow/**'
       - 'LockNow/**'
+      - 'LockDiag/**'
       - '.github/workflows/build-respringnow.yml'
       - '.github/workflows/build-poweroffnow.yml'
       - '.github/workflows/build-locknow.yml'
+      - '.github/workflows/build-lockdiag.yml'
   pull_request:
     branches: [ main, master ]
 

@@ -1,0 +1,127 @@
+name: Build LockDiag
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'LockDiag/**'
+      - '.github/workflows/build-lockdiag.yml'
+
+permissions:
+  contents: write
+
+env:
+  THEOS: ${{ github.workspace }}/theos
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 缓存 Theos
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/theos
+          key: theos-${{ runner.os }}-v1
+
+      - name: 安装 Theos
+        run: |
+          set -e
+          if [ -d "$THEOS/makefiles" ]; then
+            echo "Theos 已从缓存恢复"
+            exit 0
+          fi
+          mkdir -p "$THEOS"
+          ok=0
+          for i in 1 2 3; do
+            if bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"; then ok=1; break; fi
+            echo "install-theos 第 $i 次失败，5 秒后重试"
+            sleep 5
+          done
+          if [ "$ok" != "1" ] || [ ! -d "$THEOS/makefiles" ]; then
+            echo "官方安装脚本失败，改为直接克隆"
+            rm -rf "$THEOS"
+            git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+          fi
+          test -d "$THEOS/makefiles"
+
+      - name: 确保 ldid 可用
+        run: |
+          if command -v ldid >/dev/null 2>&1; then
+            echo "ldid already available: $(command -v ldid)"
+          else
+            mkdir -p "$HOME/bin"
+            for name in "ldid_macosx_$(uname -m)" ldid_macosx_arm64 ldid_macosx_x86_64; do
+              if curl -fsSL -o "$HOME/bin/ldid" "https://github.com/ProcursusTeam/ldid/releases/latest/download/$name"; then
+                chmod +x "$HOME/bin/ldid"
+                echo "downloaded $name"
+                break
+              fi
+            done
+            echo "$HOME/bin" >> "$GITHUB_PATH"
+          fi
+          export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          ldid -v || echo "ldid 不可用（TrollStore 安装时会重签）"
+
+      - name: 编译并打包
+        run: |
+          export PATH="$THEOS/bin:$HOME/bin:$PATH"
+          cd LockDiag
+          make clean || true
+          set -o pipefail
+          make package FINALPACKAGE=1 PACKAGE_FORMAT=ipa 2>&1 | tee /tmp/lockdiag-build.log
+          echo "--- packages ---"
+          ls -lh packages/
+          echo "--- bundle 内容 ---"
+          find .theos/_/Applications/LockDiag.app -maxdepth 1 -type f | head -20
+
+      - name: 打印编译错误
+        if: failure()
+        run: |
+          if [ -f /tmp/lockdiag-build.log ]; then
+            echo "::group::编译日志中的错误行"
+            grep -nE "error:|Error [0-9]+|\*\*\*|undefined|No such file|ld: |clang: |swiftc: |fatal error" /tmp/lockdiag-build.log | head -40 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            echo "::endgroup::"
+            echo "::group::编译日志末尾 60 行"
+            tail -60 /tmp/lockdiag-build.log
+            echo "::endgroup::"
+          fi
+
+      - name: 上传 tipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: LockDiag-tipa
+          path: LockDiag/packages/*.tipa
+          if-no-files-found: error
+
+      - name: 发布 Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lockdiag-v1.0.0
+          name: 锁屏诊断 1.0.0（纯 ObjC 对照包）
+          body: |
+            用于定位「一键锁屏」连续四次点开闪退的对照诊断包，**不是正式工具**。
+
+            与 LockNow 的区别：
+
+            - **纯 Objective-C**，不使用 Swift、不使用 bridging header，排除整条 Swift 运行时链路
+            - **全新 Bundle ID** `com.jerryyangz.LockDiag`，可与旧「一键锁屏」并存，排除同一 ID 反复覆盖安装造成的签名缓存问题
+            - **启动后不执行任何操作**，只显示界面；看到「✅ 启动成功」即证明签名 / entitlements / UIKit / 启动链路全部正常
+            - 三个按钮分步测试：① `notify_post("com.apple.springboard.toggleLockScreen")` ② 读取 `com.apple.springboard.lockstate` ③ 退出
+            - 界面显示 Bundle ID、版本、iOS 版本，可直接确认装的是不是新包
+
+            判断方法：
+
+            - 打不开 / 仍闪退 → 问题在设备、TrollStore 或安装层，与 App 代码无关，请提供 `LockDiag-*.ips` 崩溃日志
+            - 能看到「✅ 启动成功」，点①后屏幕熄灭 → 通知有效，可据此把正式版改成纯 ObjC 重写
+            - 点①后没灭但显示 rc=0 → iOS 15.8.8 的 SpringBoard 不监听该通知，App 路线不可行，请用辅助触控「锁定屏幕」
+            - 点①后闪退 → 崩在 notify_post 本身，请提供 .ips
+
+            entitlements、图标、Info.plist 结构与 LockNow 完全一致；支持 iOS / iPadOS 14.0+，arm64 / arm64e，请用 TrollStore 安装。
+          files: LockDiag/packages/*.tipa
+          fail_on_unmatched_files: true
