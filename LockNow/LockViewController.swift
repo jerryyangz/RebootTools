@@ -39,7 +39,7 @@ final class LockViewController: UIViewController {
 
     private let hintLabel: UILabel = {
         let label = UILabel()
-        label.text = "请用 TrollStore 安装（需要 platform-application 权限）。\n下面是各条路径的命中情况，可长按复制用于排查。"
+        label.text = "已向系统发送锁屏请求，但屏幕没有熄灭。\n请长按下方文字复制诊断信息发给开发者，或点重试再试一次。"
         label.textColor = UIColor(white: 0.72, alpha: 1)
         label.font = .systemFont(ofSize: 13)
         label.textAlignment = .center
@@ -132,27 +132,35 @@ final class LockViewController: UIViewController {
 
     // MARK: - 核心
 
+    /// 锁屏请求放到后台队列，主线程保持空闲，确保锁屏成功后
+    /// applicationDidEnterBackground 能及时触发并退出 App。
     private func triggerLock() {
         attempt += 1
-        _ = device.lockScreen()
-
-        // 锁屏成功时 App 会进后台（AppDelegate 里已处理退出），
-        // 这个回调不会有机会执行；仍在前台就说明请求没被系统接受。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        let currentAttempt = attempt
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
-            if UIApplication.shared.applicationState == .active {
-                self.showFailure()
+            _ = self.device.lockScreen()
+            let log = self.device.diagnostics()
+            DispatchQueue.main.async {
+                // 锁屏成功时 App 已进后台并退出，这个回调不会有机会执行；
+                // 仍在前台就说明锁屏请求没被系统接受。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self = self else { return }
+                    if UIApplication.shared.applicationState == .active {
+                        self.showFailure(attempt: currentAttempt, log: log)
+                    }
+                }
             }
         }
     }
 
-    private func showFailure() {
+    private func showFailure(attempt: Int, log: String) {
         spinner.stopAnimating()
         statusLabel.isHidden = true
         titleLabel.isHidden = false
         hintLabel.isHidden = false
         diagnosticsView.isHidden = false
-        diagnosticsView.text = "第 \(attempt) 次尝试\n\n" + device.diagnostics()
+        diagnosticsView.text = "第 \(attempt) 次尝试\n\n" + log
         retryButton.isHidden = false
         quitButton.isHidden = false
     }

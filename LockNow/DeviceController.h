@@ -2,11 +2,14 @@
 
 @interface DeviceController : NSObject
 
-/// 依次尝试所有已知的锁屏入口（私有 C 符号 / SpringBoard 类 / 系统通知）。
-/// @return YES 表示至少找到并调用了一个候选入口；不代表设备一定已经锁屏。
+/// 请求系统锁屏：只调用签名确定的公开 Darwin API，不探测、不盲调任何私有符号。
+/// @return YES 表示锁屏请求已发出；是否真正锁定请读 currentLockState / diagnostics。
 - (BOOL)lockScreen;
 
-/// 每条路径的命中与调用情况，锁屏未生效时直接展示给用户，便于一次定位。
+/// 读取系统当前的锁屏状态描述，例如「未锁定 (0)」「已锁定 (1)」。
+- (NSString *)currentLockState;
+
+/// 每一步的调用结果与前后状态对比，锁屏未生效时展示给用户便于一次定位。
 - (NSString *)diagnostics;
 
 @end

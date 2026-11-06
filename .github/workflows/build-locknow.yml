@@ -88,15 +88,18 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: locknow-v1.0.0
-          name: 一键锁屏 1.0.0
+          tag_name: locknow-v1.0.1
+          name: 一键锁屏 1.0.1
           body: |
-            点开图标立即锁屏，没有界面、没有确认框。
+            点开图标立即锁屏并熄灭屏幕，没有界面、没有确认框。
 
-            - 必须用 TrollStore 安装（需要 platform-application / no-sandbox 权限）
-            - 支持 iOS / iPadOS 14.0 及以上，arm64 / arm64e
-            - 运行时动态探测私有框架里的锁屏入口，不依赖私有头编译
-            - 若所有入口都未生效，会停在诊断界面列出每条路径的命中情况，可长按复制用于排查
+            **1.0.1 修复了 1.0.0 的启动闪退**：旧版把 dlsym 命中的 11 个私有符号一律当成 void(long) 盲调，且用 dlopen(RTLD_NOW) 强制加载私有框架，签名不符时会 EXC_BAD_ACCESS。新版彻底移除私有框架探测与盲调，只调用签名确定的公开 Darwin 通知 API。
+
+            - 主入口 `com.apple.springboard.toggleLockScreen`，来自 CVE-2025-24091 官方 PoC（该限制直到 iOS 18.3 才加入，iOS 15/16/17 可直接发送）
+            - 辅助入口 `GSEventLockDevice()` 使用正确的 void(void) 签名，仅在当前进程已导出时调用，不 dlopen 私有框架
+            - 每个阶段都会读取 `com.apple.springboard.lockstate` 校验是否真的锁定，避免重复 toggle 解锁
             - 锁屏成功后 App 自动退出，解锁后直接回到桌面
+            - 未生效时停在诊断界面，长按可复制各阶段状态用于排查
+            - 支持 iOS / iPadOS 14.0 及以上，arm64 / arm64e；请用 TrollStore 安装
           files: LockNow/packages/*.tipa
           fail_on_unmatched_files: true
