@@ -1,24 +1,22 @@
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface DeviceController : NSObject
 
-/// 只通过公开的 Darwin 通知 API 请求锁屏。
-/// 不 dlopen 任何私有框架，也不调用任何未验证签名的私有符号。
+/// 通过 libSystem 的公开 Darwin 通知请求锁屏，并读取系统锁定状态。
+/// 不加载私有框架，不调用任何未验证签名的符号。
 - (BOOL)lockScreen;
 
-/// 读取 com.apple.springboard.lockstate 的当前状态描述。
+/// 是否已锁定。返回 BOOL 可避免 Swift 桥接时的可选值歧义。
+- (BOOL)isLocked;
+
+/// 当前锁定状态的可读描述。
 - (NSString *)currentLockState;
 
-/// 逐步调用结果，锁屏未生效时显示给用户用于定位。
+/// 逐条投递结果，供界面显示。
 - (NSString *)diagnostics;
 
 @end
 
-/// 安装崩溃哨兵，必须在 didFinishLaunchingWithOptions 的第一行调用。
-/// 捕获 SIGSEGV / SIGBUS / SIGABRT / SIGILL / SIGFPE，把崩溃时所处的阶段
-/// 写入 Documents/locknow-crash.log，然后恢复默认处理让系统照常生成 .ips。
-void LNInstallCrashGuard(void);
-
-/// 读出并清空上一次的崩溃记录；没有记录返回 nil。
-/// 下次启动发现记录时会进入「安全模式」，不再自动执行锁屏，避免连续闪退。
-NSString *LNLastCrashReport(void);
+NS_ASSUME_NONNULL_END
