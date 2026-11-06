@@ -102,27 +102,25 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: locknow-v1.0.3
-          name: 一键锁屏 1.0.3
+          tag_name: locknow-v1.1.0
+          name: 一键锁屏 1.1.0（纯 ObjC 重写版）
           body: |
-            点开图标即请求锁屏并熄灭屏幕。本版由真机崩溃日志驱动修复。
+            点开图标立即锁屏并熄灭屏幕。1.1.0 是**纯 Objective-C 重写版**，解决 1.0.0 ~ 1.0.3 连续四次点开闪退。
 
-            **1.0.3 修复了 1.0.0 / 1.0.1 / 1.0.2 连续三次「点开就闪退」**
+            用户用纯 ObjC 对照包「锁屏诊断」实测确认：
 
-            1.0.2 的崩溃哨兵在真机回报 `CRASH sig=11 stage=1 note=didFinishLaunching`。stage=1 是「哨兵装好」到「lockScreen 开始」之间的唯一阶段号，说明崩溃发生在启动 UI 路径上，锁屏代码一次都没执行过 —— 前两版一直在改锁屏 API，方向错了，通知根本没发出去。
+            - 纯 ObjC 启动链路完全正常（能看到「✅ 启动成功」）
+            - `notify_post("com.apple.springboard.toggleLockScreen")` 点击后**屏幕熄灭**，即该通知在 iOS 15.8.8 上确实有效
 
-            本版把启动路径做成与真机验证成功的 RespringNow 逐行同构，删除 LockNow 独有的全部额外机制：
+            因此四版闪退的根因收敛为 Swift + ObjC 混编启动链路，以及同一 Bundle ID 反复覆盖安装。本版按已验证结构重写：
 
-            - 删除崩溃哨兵（signal handler、C 函数桥接、Documents 文件 IO）
-            - 删除动态符号解析，改用编译期 extern 声明 libSystem 的公开 Darwin 符号，并加 weak_import 防止 dyld 在启动时终止 App
-            - 删除后台队列与人为延迟，锁屏调用在主线程 viewDidAppear 同步执行，全程 < 50ms
-            - 删除安全模式、多行文本框、复杂约束与 viewDidLoad 抢跑
-            - 只用 UILabel / UIButton；绝不自动退出，只有点「退出」才结束进程
+            - 纯 Objective-C（`main.m` + `UIApplicationMain`），零 Swift 运行时依赖、无 bridging header
+            - 全新 Bundle ID `com.jerryyangz.LockNowOC`，绕开旧 ID 覆盖安装的签名缓存问题；**安装前请先删除旧的「一键锁屏」图标**
+            - 启动后在 `viewDidAppear` 自动发送**一条**锁屏通知；只发一条，避免 toggle 语义把屏幕反向解开
+            - 绝不自动退出，锁屏后解锁回来能看到结果页（rc、lockstate 前后变化、版本与 Bundle ID）
+            - 提供「再锁一次 / 复制诊断 / 退出」
+            - entitlements 与前版一致；支持 iOS / iPadOS 14.0 及以上，arm64 / arm64e；请用 TrollStore 安装
 
-            - 逐条投递 5 个锁屏候选 Darwin 通知，每条后读取 `com.apple.springboard.lockstate`，检测到已锁定立即停止，避免 toggle 反向解锁
-            - 首条入口 `com.apple.springboard.toggleLockScreen` 来自 CVE-2025-24091 官方 PoC（发送方限制 iOS 18.3 才加入）
-            - 结果页显示每条 rc 与状态变化，可点「复制诊断」粘贴出来
-            - 支持 iOS / iPadOS 14.0 及以上，arm64 / arm64e；请用 TrollStore 安装
-            - 1.0.0 / 1.0.1 / 1.0.2 的 Release 均保留，可随时回滚
+            1.0.0 / 1.0.1 / 1.0.2 / 1.0.3 的 Release 均保留，可随时回滚。
           files: LockNow/packages/*.tipa
           fail_on_unmatched_files: true

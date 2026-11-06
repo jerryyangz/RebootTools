@@ -7,9 +7,8 @@ include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME = LockNow
 
-LockNow_FILES = AppDelegate.swift LockViewController.swift DeviceController.m
+LockNow_FILES = main.m AppDelegate.m LockViewController.m
 LockNow_FRAMEWORKS = UIKit
-LockNow_SWIFT_BRIDGING_HEADER = LockNow-Bridging-Header.h
 include $(THEOS_MAKE_PATH)/application.mk
 
 $(APPLICATION_NAME)_CODESIGN_FLAGS = -Sentitlements.plist
