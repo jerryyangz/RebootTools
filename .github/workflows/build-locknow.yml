@@ -102,18 +102,21 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: locknow-v1.0.1
-          name: 一键锁屏 1.0.1
+          tag_name: locknow-v1.0.2
+          name: 一键锁屏 1.0.2
           body: |
-            点开图标立即锁屏并熄灭屏幕，没有界面、没有确认框。
+            点开图标即请求锁屏并熄灭屏幕。本版重点解决 1.0.0 / 1.0.1 连续两次「点开就闪退」。
 
-            **1.0.1 修复了 1.0.0 的启动闪退**：旧版把 dlsym 命中的 11 个私有符号一律当成 void(long) 盲调，且用 dlopen(RTLD_NOW) 强制加载私有框架，签名不符时会 EXC_BAD_ACCESS。新版彻底移除私有框架探测与盲调，只调用签名确定的公开 Darwin 通知 API。
+            **1.0.2 的三处关键修复**
 
-            - 主入口 `com.apple.springboard.toggleLockScreen`，来自 CVE-2025-24091 官方 PoC（该限制直到 iOS 18.3 才加入，iOS 15/16/17 可直接发送）
-            - 辅助入口 `GSEventLockDevice()` 使用正确的 void(void) 签名，仅在当前进程已导出时调用，不 dlopen 私有框架
-            - 每个阶段都会读取 `com.apple.springboard.lockstate` 校验是否真的锁定，避免重复 toggle 解锁
-            - 锁屏成功后 App 自动退出，解锁后直接回到桌面
-            - 未生效时停在诊断界面，长按可复制各阶段状态用于排查
+            1. 删除 `applicationDidEnterBackground` 里的 `exit(EXIT_SUCCESS)`。锁屏通知只要让 App 短暂失焦，旧版进程就会立刻自杀，用户看到的就是「闪退且屏幕没灭」；已真机验证的 RespringNow 并没有这个回调。本版绝不自动退出。
+            2. 彻底移除所有私有框架加载与私有符号调用（1.0.1 仍保留了一个 GraphicsServices 私有锁屏函数，是两版唯一的共同危险调用）。现在只调用 libSystem 的公开 `notify_post()`，从结构上消除 EXC_BAD_ACCESS。
+            3. 内置崩溃哨兵：SIGSEGV / SIGBUS / SIGABRT / SIGILL / SIGFPE 触发时把「崩在第几阶段」写入 Documents/locknow-crash.log，下次启动显示并清空；发现记录时进入安全模式，不再自动执行锁屏，避免连续闪退看不到诊断。
+
+            - 逐条发送 6 个锁屏候选 Darwin 通知，每条后读取 `com.apple.springboard.lockstate`，检测到已锁定立即停止，避免 toggle 反向解锁
+            - 首条入口 `com.apple.springboard.toggleLockScreen` 来自 CVE-2025-24091 官方 PoC（该限制 iOS 18.3 才加入）
+            - 未生效时停在诊断界面，长按可复制各阶段 rc 与状态变化
             - 支持 iOS / iPadOS 14.0 及以上，arm64 / arm64e；请用 TrollStore 安装
+            - 1.0.0 / 1.0.1 的 Release 均保留，可随时回滚
           files: LockNow/packages/*.tipa
           fail_on_unmatched_files: true

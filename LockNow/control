@@ -1,6 +1,6 @@
 Package: com.jerryyangz.locknow
 Name: 一键锁屏
-Version: 1.0.1
+Version: 1.0.2
 Architecture: iphoneos-arm
 Description: 点开图标立即锁屏，无界面、无确认框。
 Maintainer: jerryyangz
