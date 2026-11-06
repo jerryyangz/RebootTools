@@ -140,7 +140,7 @@ final class LockViewController: UIViewController {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             _ = self.device.lockScreen()
-            let log = self.device.diagnostics()
+            let log: String = self.device.diagnostics() ?? "（无诊断信息）"
             DispatchQueue.main.async {
                 // 锁屏成功时 App 已进后台并退出，这个回调不会有机会执行；
                 // 仍在前台就说明锁屏请求没被系统接受。
