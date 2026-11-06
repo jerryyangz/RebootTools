@@ -8,6 +8,10 @@ on:
       - 'LockNow/**'
       - '.github/workflows/build-locknow.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -16,7 +20,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-15-intel-intel
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
